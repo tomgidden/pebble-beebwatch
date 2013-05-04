@@ -31,7 +31,7 @@
 #define APPNAME "Beebwatch"
 
 PBL_APP_INFO(MY_UUID, APPNAME, "Tom Gidden",
-             1, 0, /* App version */
+             1, 1, /* App version */
              RESOURCE_ID_IMAGE_MENU_ICON, APP_INFO_WATCH_FACE);
 
 
@@ -179,7 +179,7 @@ void handle_tick(AppContextRef ctx, PebbleTickEvent *t)
     text_layer_set_text(&time_layer, time_text);
 
     if ((firstrun == YES) || (pebble_time.tm_sec == 0)) {
-        set_hand(&hourhand_container, (pebble_time.tm_hour % 12)/360 + (pebble_time.tm_min/2));
+        set_hand(&hourhand_container, (pebble_time.tm_hour % 12)*30 + (pebble_time.tm_min/2));
         set_hand(&minutehand_container, pebble_time.tm_min*6);
     }
 

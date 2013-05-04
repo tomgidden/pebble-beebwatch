@@ -26,6 +26,7 @@
             "file": "images/center.png"
         },
         {
+            "characterRegex": "[A-Za-z0-9 ]",
             "defName": "FONT_MALLARD_16",
             "type": "font",
             "file": "fonts/MallardBlocky-Regular.otf"
