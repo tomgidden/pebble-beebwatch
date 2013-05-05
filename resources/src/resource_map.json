@@ -21,11 +21,6 @@
             "file": "images/minute.png"
         },
         {
-            "defName": "IMAGE_CENTER",
-            "type": "png",
-            "file": "images/center.png"
-        },
-        {
             "characterRegex": "[A-Za-z0-9 ]",
             "defName": "FONT_MALLARD_16",
             "type": "font",
