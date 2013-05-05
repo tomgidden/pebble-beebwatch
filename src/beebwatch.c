@@ -25,14 +25,8 @@
 #define NO 0
 #define YES 1
 
-
-
-#define FONT_SMALL RESOURCE_ID_FONT_MALLARD_16
-#define FONT_LARGE RESOURCE_ID_FONT_MALLARD_CONDENSED_SUBSET_32
-
-
 PBL_APP_INFO(MY_UUID, APP_NAME, "Tom Gidden",
-             1, 1, /* App version */
+             1, 2, /* App version */
              RESOURCE_ID_IMAGE_MENU_ICON, APP_INFO_WATCH_FACE);
 
 Window window;
@@ -52,9 +46,16 @@ GFont small_font;
 GPoint center;
 GRect watchface_frame;
 GRect centerdot_rect;
-int centerdot_radius = 9;
 
-int sechand_length = 56;
+const int seconds = BEEBWATCH_SECONDS;
+const int digital_time = BEEBWATCH_DIGITALTIME;
+const int big = BEEBWATCH_BIG;
+
+int centerdot_radius = BEEBWATCH_BIG ? 11 : 9;
+int sechand_length = BEEBWATCH_BIG ? 72 : 56;
+
+#define FONT_SMALL RESOURCE_ID_FONT_MALLARD_16
+#define FONT_LARGE RESOURCE_ID_FONT_MALLARD_CONDENSED_SUBSET_32
 
 static PblTm pebble_time;
 
@@ -134,9 +135,11 @@ void handle_tick(AppContextRef ctx, PebbleTickEvent *t)
         set_hand(&hourhand_container, (pebble_time.tm_hour % 12)*30 + (pebble_time.tm_min/2));
         set_hand(&minutehand_container, pebble_time.tm_min*6);
 
-        if(firstrun || pebble_time.tm_min == 0) {
-            string_format_time(date_text, sizeof(date_text), "%a %e %b", &pebble_time);
-            text_layer_set_text(&date_layer, date_text);
+        if(!big) {
+            if(firstrun || pebble_time.tm_min == 0) {
+                string_format_time(date_text, sizeof(date_text), "%a %e %b", &pebble_time);
+                text_layer_set_text(&date_layer, date_text);
+            }
         }
 
         if(firstrun)
@@ -157,12 +160,18 @@ void handle_init(AppContextRef ctx)
     bmp_init_container(RESOURCE_ID_IMAGE_WATCHFACE, &watchface_container);
 
     watchface_frame = layer_get_frame(&watchface_container.layer.layer);
-    watchface_frame.origin.x = 16;
 
-    if(digital_time)
-        watchface_frame.origin.y = 0;
-    else
-        watchface_frame.origin.y = 14;
+    if(big) {
+        watchface_frame.origin.x = 0;
+        watchface_frame.origin.y = 12;
+    }
+    else {
+        watchface_frame.origin.x = 16;
+        if(digital_time)
+            watchface_frame.origin.y = 0;
+        else
+            watchface_frame.origin.y = 14;
+    }
 
     center = GPoint(watchface_frame.size.w/2, watchface_frame.size.h/2);
     centerdot_rect = GRect(center.x - centerdot_radius, center.y - centerdot_radius, centerdot_radius*2, centerdot_radius*2);
@@ -170,45 +179,56 @@ void handle_init(AppContextRef ctx)
     layer_set_frame(&watchface_container.layer.layer, watchface_frame);
     layer_add_child(&window.layer, &watchface_container.layer.layer);
 
-    large_font = fonts_load_custom_font(resource_get_handle(FONT_LARGE));
-    small_font = fonts_load_custom_font(resource_get_handle(FONT_SMALL));
+    if(!big) {
+        small_font = fonts_load_custom_font(resource_get_handle(FONT_SMALL));
 
-    // Date
-    text_layer_init(&date_layer, window.layer.frame);
-    text_layer_set_text_color(&date_layer, GColorWhite);
-    text_layer_set_background_color(&date_layer, GColorClear);
-    layer_set_frame(&date_layer.layer, GRect(13, 146, 144-13, 20));
-    text_layer_set_font(&date_layer, small_font);
-    text_layer_set_text_alignment(&date_layer, GTextAlignmentLeft);
-    layer_add_child(&window.layer, &date_layer.layer);
+        // Date
+        text_layer_init(&date_layer, window.layer.frame);
+        text_layer_set_text_color(&date_layer, GColorWhite);
+        text_layer_set_background_color(&date_layer, GColorClear);
+        layer_set_frame(&date_layer.layer, GRect(13, 146, 144-13, 20));
+        text_layer_set_font(&date_layer, small_font);
+        text_layer_set_text_alignment(&date_layer, GTextAlignmentLeft);
+        layer_add_child(&window.layer, &date_layer.layer);
 
-    // Time
-    if(digital_time) {
-        text_layer_init(&time_layer, window.layer.frame);
-        text_layer_set_text_color(&time_layer, GColorWhite);
-        text_layer_set_background_color(&time_layer, GColorClear);
-        if(seconds)
-            layer_set_frame(&time_layer.layer, GRect(25, 112, 144-25, 32));
-        else
-            layer_set_frame(&time_layer.layer, GRect(43, 112, 144-43, 32));
-        text_layer_set_font(&time_layer, large_font);
-        text_layer_set_text_alignment(&time_layer, GTextAlignmentLeft);
-        layer_add_child(&window.layer, &time_layer.layer);
+        // Time
+        if(digital_time) {
+            large_font = fonts_load_custom_font(resource_get_handle(FONT_LARGE));
+            text_layer_init(&time_layer, window.layer.frame);
+            text_layer_set_text_color(&time_layer, GColorWhite);
+            text_layer_set_background_color(&time_layer, GColorClear);
+            if(seconds)
+                layer_set_frame(&time_layer.layer, GRect(25, 112, 144-25, 32));
+            else
+                layer_set_frame(&time_layer.layer, GRect(43, 112, 144-43, 32));
+            text_layer_set_font(&time_layer, large_font);
+            text_layer_set_text_alignment(&time_layer, GTextAlignmentLeft);
+            layer_add_child(&window.layer, &time_layer.layer);
+        }
     }
 
     // Hands
     rotbmp_pair_init_container(RESOURCE_ID_IMAGE_HOURHAND_WHITE, RESOURCE_ID_IMAGE_HOURHAND_BLACK, &hourhand_container);
-    rotbmp_pair_layer_set_src_ic(&hourhand_container.layer, GPoint(2, 37));
+    if(big)
+        rotbmp_pair_layer_set_src_ic(&hourhand_container.layer, GPoint(3, 49));
+    else
+        rotbmp_pair_layer_set_src_ic(&hourhand_container.layer, GPoint(2, 37));
+
     hourhand_container.layer.layer.frame.origin.x = watchface_frame.origin.x + center.x - hourhand_container.layer.layer.frame.size.w / 2;
     hourhand_container.layer.layer.frame.origin.y = watchface_frame.origin.y + center.y - hourhand_container.layer.layer.frame.size.h / 2;
     layer_add_child(&window.layer, &hourhand_container.layer.layer);
 
     rotbmp_pair_init_container(RESOURCE_ID_IMAGE_MINUTEHAND_WHITE, RESOURCE_ID_IMAGE_MINUTEHAND_BLACK, &minutehand_container);
-    rotbmp_pair_layer_set_src_ic(&minutehand_container.layer, GPoint(1, 56));
+    if(big)
+        rotbmp_pair_layer_set_src_ic(&minutehand_container.layer, GPoint(2, 72));
+    else
+        rotbmp_pair_layer_set_src_ic(&minutehand_container.layer, GPoint(1, 56));
     minutehand_container.layer.layer.frame.origin.x = watchface_frame.origin.x + center.x - minutehand_container.layer.layer.frame.size.w / 2;
     minutehand_container.layer.layer.frame.origin.y = watchface_frame.origin.y + center.y - minutehand_container.layer.layer.frame.size.h / 2;
     layer_add_child(&window.layer, &minutehand_container.layer.layer);
 
+    // Seconds: used even if there's no second hand, as the center dot is
+    // on this layer.
     layer_init(&sechand_layer, watchface_frame);
     sechand_layer.update_proc = &sechand_update_proc;
     layer_add_child(&window.layer, &sechand_layer);
@@ -223,9 +243,11 @@ void handle_deinit(AppContextRef ctx)
     bmp_deinit_container(&watchface_container);
     rotbmp_pair_deinit_container(&hourhand_container);
     rotbmp_pair_deinit_container(&minutehand_container);
-    if(digital_time)
-        fonts_unload_custom_font(&large_font);
-    fonts_unload_custom_font(&small_font);
+    if(!big) {
+        if(digital_time)
+            fonts_unload_custom_font(&large_font);
+        fonts_unload_custom_font(&small_font);
+    }
     window_deinit(&window);
 }
 

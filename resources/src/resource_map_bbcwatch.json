@@ -1,0 +1,26 @@
+{
+    "media": [
+        {
+            "defName": "IMAGE_MENU_ICON",
+            "type": "png",
+            "file": "images/bbcwatch_menuicon.png"
+        },
+        {
+            "defName": "IMAGE_WATCHFACE",
+            "type": "png",
+            "file": "images/bbcwatch_watchface.png"
+        },
+        {
+            "defName": "IMAGE_HOURHAND",
+            "type": "png-trans",
+            "file": "images/bbcwatch_hour.png"
+        },
+        {
+            "defName": "IMAGE_MINUTEHAND",
+            "type": "png-trans",
+            "file": "images/bbcwatch_minute.png"
+        }
+    ],
+    "friendlyVersion": "VERSION",
+    "versionDefName": "APP_RESOURCES"
+}
