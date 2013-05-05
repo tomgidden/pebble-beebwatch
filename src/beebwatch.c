@@ -20,20 +20,20 @@
 #include "pebble_app.h"
 #include "pebble_fonts.h"
 
+#include "config.h"
+
 #define NO 0
 #define YES 1
 
-#define MY_UUID { 0x9A, 0x8C, 0x21, 0x23, 0x7D, 0x20, 0x43, 0x24, 0xA1, 0x85, 0x45, 0x69, 0x2A, 0x58, 0x0E, 0xCE }
+
 
 #define FONT_SMALL RESOURCE_ID_FONT_MALLARD_16
 #define FONT_LARGE RESOURCE_ID_FONT_MALLARD_CONDENSED_SUBSET_32
 
-#define APPNAME "Beebwatch"
 
-PBL_APP_INFO(MY_UUID, APPNAME, "Tom Gidden",
+PBL_APP_INFO(MY_UUID, APP_NAME, "Tom Gidden",
              1, 1, /* App version */
              RESOURCE_ID_IMAGE_MENU_ICON, APP_INFO_WATCH_FACE);
-
 
 Window window;
 
@@ -57,35 +57,98 @@ int centerdot_radius = 9;
 int sechand_length = 56;
 
 static PblTm pebble_time;
+
 static char date_text[] = "Xxx 00 Xxx";
-static char time_text[] = "00:00:00";
 static char *time_format;
+static char time_text[] = "00:00:00";
 
 void sechand_update_proc(Layer *me, GContext *ctx)
 {
-    static GPoint endpoint1, endpoint2;
+    if(seconds) {
+        static GPoint endpoint1, endpoint2;
 
-    graphics_context_set_stroke_color(ctx, GColorWhite);
+        graphics_context_set_stroke_color(ctx, GColorWhite);
+
+        int32_t a = TRIG_MAX_ANGLE * pebble_time.tm_sec / 60;
+        int16_t dy = (int16_t)(-cos_lookup(a) * (int32_t)sechand_length / TRIG_MAX_RATIO);
+        int16_t dx = (int16_t)(sin_lookup(a) * (int32_t)sechand_length / TRIG_MAX_RATIO);
+
+        endpoint1.x = center.x + dx;
+        endpoint1.y = center.y + dy;
+        endpoint2.x = center.x - dx/3;
+        endpoint2.y = center.y - dy/3;
+
+        graphics_draw_line(ctx, endpoint1, endpoint2);
+    }
+
     graphics_context_set_fill_color(ctx, GColorBlack);
-
-    int32_t a = TRIG_MAX_ANGLE * pebble_time.tm_sec / 60;
-    int16_t dy = (int16_t)(-cos_lookup(a) * (int32_t)sechand_length / TRIG_MAX_RATIO);
-    int16_t dx = (int16_t)(sin_lookup(a) * (int32_t)sechand_length / TRIG_MAX_RATIO);
-
-    endpoint1.x = center.x + dx;
-    endpoint1.y = center.y + dy;
-    endpoint2.x = center.x - dx/3;
-    endpoint2.y = center.y - dy/3;
-
-    graphics_draw_line(ctx, endpoint1, endpoint2);
     graphics_fill_rect(ctx, centerdot_rect, centerdot_radius, GCornersAll);
+}
+
+void set_hand(RotBmpPairContainer *pair, int ang)
+{
+    pair->layer.white_layer.rotation = TRIG_MAX_ANGLE * ang / 360;
+    pair->layer.black_layer.rotation = TRIG_MAX_ANGLE * ang / 360;
+    layer_mark_dirty(&pair->layer.layer);
+}
+
+void handle_tick(AppContextRef ctx, PebbleTickEvent *t)
+{
+    (void)ctx;
+
+    if(t)
+        pebble_time = *t->tick_time;
+    else
+        get_time(&pebble_time);
+
+    if(digital_time) {
+        if (clock_is_24h_style()) {
+            if(seconds) {
+                time_format = "%R:%S";
+            }
+            else {
+                time_format = "%R";
+            }
+        } else {
+            if(seconds) {
+                time_format = "%I:%M:%S";
+            }
+            else {
+                time_format = "%I:%M";
+            }
+        }
+
+        string_format_time(time_text, sizeof(time_text), time_format, &pebble_time);
+        if ((!clock_is_24h_style()) && (time_text[0] == '0')) {
+            time_text[0] = ' ';
+        }
+
+        text_layer_set_text(&time_layer, time_text);
+    }
+
+    if(seconds) {
+        layer_mark_dirty(&sechand_layer);
+    }
+
+    if (firstrun || !seconds || (pebble_time.tm_sec == 0)) {
+        set_hand(&hourhand_container, (pebble_time.tm_hour % 12)*30 + (pebble_time.tm_min/2));
+        set_hand(&minutehand_container, pebble_time.tm_min*6);
+
+        if(firstrun || pebble_time.tm_min == 0) {
+            string_format_time(date_text, sizeof(date_text), "%a %e %b", &pebble_time);
+            text_layer_set_text(&date_layer, date_text);
+        }
+
+        if(firstrun)
+            firstrun = NO;
+    }
 }
 
 void handle_init(AppContextRef ctx)
 {
     (void)ctx;
 
-    window_init(&window, APPNAME);
+    window_init(&window, APP_NAME);
     window_stack_push(&window, true /* Animated */);
     window_set_background_color(&window, GColorBlack);
 
@@ -95,7 +158,11 @@ void handle_init(AppContextRef ctx)
 
     watchface_frame = layer_get_frame(&watchface_container.layer.layer);
     watchface_frame.origin.x = 16;
-    watchface_frame.origin.y = 0;
+
+    if(digital_time)
+        watchface_frame.origin.y = 0;
+    else
+        watchface_frame.origin.y = 14;
 
     center = GPoint(watchface_frame.size.w/2, watchface_frame.size.h/2);
     centerdot_rect = GRect(center.x - centerdot_radius, center.y - centerdot_radius, centerdot_radius*2, centerdot_radius*2);
@@ -116,13 +183,18 @@ void handle_init(AppContextRef ctx)
     layer_add_child(&window.layer, &date_layer.layer);
 
     // Time
-    text_layer_init(&time_layer, window.layer.frame);
-    text_layer_set_text_color(&time_layer, GColorWhite);
-    text_layer_set_background_color(&time_layer, GColorClear);
-    layer_set_frame(&time_layer.layer, GRect(25, 112, 144-25, 32));
-    text_layer_set_font(&time_layer, large_font);
-    text_layer_set_text_alignment(&time_layer, GTextAlignmentLeft);
-    layer_add_child(&window.layer, &time_layer.layer);
+    if(digital_time) {
+        text_layer_init(&time_layer, window.layer.frame);
+        text_layer_set_text_color(&time_layer, GColorWhite);
+        text_layer_set_background_color(&time_layer, GColorClear);
+        if(seconds)
+            layer_set_frame(&time_layer.layer, GRect(25, 112, 144-25, 32));
+        else
+            layer_set_frame(&time_layer.layer, GRect(43, 112, 144-43, 32));
+        text_layer_set_font(&time_layer, large_font);
+        text_layer_set_text_alignment(&time_layer, GTextAlignmentLeft);
+        layer_add_child(&window.layer, &time_layer.layer);
+    }
 
     // Hands
     rotbmp_pair_init_container(RESOURCE_ID_IMAGE_HOURHAND_WHITE, RESOURCE_ID_IMAGE_HOURHAND_BLACK, &hourhand_container);
@@ -140,71 +212,37 @@ void handle_init(AppContextRef ctx)
     layer_init(&sechand_layer, watchface_frame);
     sechand_layer.update_proc = &sechand_update_proc;
     layer_add_child(&window.layer, &sechand_layer);
+
+    handle_tick(NULL, NULL);
 }
 
-void handle_deinit(AppContextRef ctx) {
+void handle_deinit(AppContextRef ctx)
+{
     (void)ctx;
 
     bmp_deinit_container(&watchface_container);
     rotbmp_pair_deinit_container(&hourhand_container);
     rotbmp_pair_deinit_container(&minutehand_container);
-    fonts_unload_custom_font(&large_font);
+    if(digital_time)
+        fonts_unload_custom_font(&large_font);
     fonts_unload_custom_font(&small_font);
     window_deinit(&window);
 }
 
-void set_hand(RotBmpPairContainer *pair, int ang)
-{
-    pair->layer.white_layer.rotation = TRIG_MAX_ANGLE * ang / 360;
-    pair->layer.black_layer.rotation = TRIG_MAX_ANGLE * ang / 360;
-    layer_mark_dirty(&pair->layer.layer);
-}
-
-
-void handle_tick(AppContextRef ctx, PebbleTickEvent *t)
-{
-    (void)ctx;
-
-    get_time(&pebble_time);
-
-    if (clock_is_24h_style()) {
-        time_format = "%R:%S";
-    } else {
-        time_format = "%I:%M:%S";
-    }
-    string_format_time(time_text, sizeof(time_text), time_format, t->tick_time);
-    if ((!clock_is_24h_style()) && (time_text[0] == '0')) {
-        time_text[0] = ' ';
-    }
-    text_layer_set_text(&time_layer, time_text);
-
-    if ((firstrun == YES) || (pebble_time.tm_sec == 0)) {
-        set_hand(&hourhand_container, (pebble_time.tm_hour % 12)*30 + (pebble_time.tm_min/2));
-        set_hand(&minutehand_container, pebble_time.tm_min*6);
-    }
-
-    // Update At First Launch and every hour
-    if ((firstrun == YES) || ((pebble_time.tm_sec == 0) && (pebble_time.tm_min == 0))) {
-        string_format_time(date_text, sizeof(date_text), "%a %e %b", t->tick_time);
-        text_layer_set_text(&date_layer, date_text);
-    }
-
-    // Set firstrun to NO
-    if (firstrun == YES) {
-        firstrun = NO;
-    }
-}
-
-
 void pbl_main(void *params) {
     PebbleAppHandlers handlers = {
         .init_handler = &handle_init,
-
+        .deinit_handler = &handle_deinit,
         .tick_info = {
             .tick_handler = &handle_tick,
             .tick_units = SECOND_UNIT
         }
-
     };
+
+    if(seconds)
+        handlers.tick_info.tick_units = SECOND_UNIT;
+    else
+        handlers.tick_info.tick_units = MINUTE_UNIT;
+
     app_event_loop(params, &handlers);
 }
