@@ -12,13 +12,18 @@
         },
         {
             "defName": "IMAGE_HOURHAND",
-            "type": "png-trans",
+            "type": "png",
             "file": "images/bbcwatch_hour.png"
         },
         {
             "defName": "IMAGE_MINUTEHAND",
-            "type": "png-trans",
+            "type": "png",
             "file": "images/bbcwatch_minute.png"
+        },
+        {
+            "defName": "IMAGE_CENTERDOT",
+            "type": "png",
+            "file": "images/bbcwatch_centerdot.png"
         }
     ],
     "friendlyVersion": "VERSION",

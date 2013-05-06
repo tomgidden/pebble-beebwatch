@@ -29,121 +29,218 @@ PBL_APP_INFO(MY_UUID, APP_NAME, "Tom Gidden",
              1, 2, /* App version */
              RESOURCE_ID_IMAGE_MENU_ICON, APP_INFO_WATCH_FACE);
 
-Window window;
 
-int firstrun = YES; // Variable to check for first run
-
-BmpContainer watchface_container;
-RotBmpPairContainer hourhand_container;
-RotBmpPairContainer minutehand_container;
-
-TextLayer date_layer;
-TextLayer time_layer;
-Layer sechand_layer;
-
-GFont large_font;
-GFont small_font;
-GPoint center;
-GRect watchface_frame;
-GRect centerdot_rect;
-
+// Boolean preferences:
 const int seconds = BEEBWATCH_SECONDS;
 const int digital_time = BEEBWATCH_DIGITALTIME;
 const int big = BEEBWATCH_BIG;
 
-int centerdot_radius = BEEBWATCH_BIG ? 11 : 9;
-int sechand_length = BEEBWATCH_BIG ? 72 : 56;
+Window window;
 
+// watchface is the background image
+BmpContainer watchface_container;
+
+// The frame of the watchface is unsurprisingly pivotal (no pun intended),
+// and is used in all of the graphics update routines, so it's best to
+// just store it rather than recalculating it each time. In addition, the
+// middle point of the frame is also used, so we store it too: relative to
+// the frame.
+GPoint watchface_center;
+GRect watchface_frame;
+
+// centerdot is to cover up the where the hands cross the center, which is
+// unsightly. Previous versions used a rounded rectangle or a circle, but
+// I think this might be more efficient...
+BmpContainer centerdot_container;
+
+// At time of writing, most recent firmware (1.10) has bugs relating to
+// filling of narrow polygons. As a result, using GPaths to draw the hands
+// of the watch is not as good as rotating bitmaps. So, the hour and
+// minute hands are just white rectangle bitmaps that get rotated into
+// place.
+RotBmpContainer hourhand_container;
+RotBmpContainer minutehand_container;
+Layer hmhands_layer;
+
+// The second hand, however, can be drawn with a simple line, as in this
+// design it's not meant to be thick.
+Layer sechand_layer;
+
+// Text layers and fonts for digital time and date. If these are not
+// enabled, they just don't get loaded or used, so no big deal.
+TextLayer date_layer;
+GFont small_font;
 #define FONT_SMALL RESOURCE_ID_FONT_MALLARD_16
-#define FONT_LARGE RESOURCE_ID_FONT_MALLARD_CONDENSED_SUBSET_32
 
-static PblTm pebble_time;
+TextLayer time_layer;
+GFont large_font;
+#define FONT_LARGE RESOURCE_ID_FONT_MALLARD_CONDENSED_32
 
-static char date_text[] = "Xxx 00 Xxx";
-static char *time_format;
-static char time_text[] = "00:00:00";
 
-void sechand_update_proc(Layer *me, GContext *ctx)
-{
-    if(seconds) {
-        static GPoint endpoint1, endpoint2;
+// Store the time from the event, so we can use it in later
+// functions. Since we're not building a world-clock, or handling General
+// Relativity, I think it's safe to treat time as a global variable...
+PblTm pebble_time;
 
-        graphics_context_set_stroke_color(ctx, GColorWhite);
+// Text buffers for the digital readout.
+char date_text[] = "Xxx 00 Xxx";
+char *time_format;
+char time_text[] = "00:00:00";
 
-        int32_t a = TRIG_MAX_ANGLE * pebble_time.tm_sec / 60;
-        int16_t dy = (int16_t)(-cos_lookup(a) * (int32_t)sechand_length / TRIG_MAX_RATIO);
-        int16_t dx = (int16_t)(sin_lookup(a) * (int32_t)sechand_length / TRIG_MAX_RATIO);
+// At time of writing, it's not possible to switch between 12/24h
+// while the face is running, so it's okay to set this just once.
+int is_24h;
 
-        endpoint1.x = center.x + dx;
-        endpoint1.y = center.y + dy;
-        endpoint2.x = center.x - dx/3;
-        endpoint2.y = center.y - dy/3;
 
-        graphics_draw_line(ctx, endpoint1, endpoint2);
-    }
 
-    graphics_context_set_fill_color(ctx, GColorBlack);
-    graphics_fill_rect(ctx, centerdot_rect, centerdot_radius, GCornersAll);
+////////////////////////////////////////////////////////////////////////////
+// This comes direct from
+// pebble/pebble-sdk-examples/watches/brains/src/brains.c, as bitmap
+// rotation is inexplicable at the moment.
+
+/* -------------- TODO: Remove this and use Public API ! ------------------- */
+
+// from src/core/util/misc.h
+
+#define MAX(a,b) (((a)>(b))?(a):(b))
+
+// From src/fw/ui/rotate_bitmap_layer.c
+
+//! newton's method for floor(sqrt(x)) -> should always converge
+static int32_t integer_sqrt(int32_t x) {
+  if (x < 0) {
+    ////    PBL_LOG(LOG_LEVEL_ERROR, "Looking for sqrt of negative number");
+    return 0;
+  }
+
+  int32_t last_res = 0;
+  int32_t res = (x + 1)/2;
+  while (last_res != res) {
+    last_res = res;
+    res = (last_res + x / last_res) / 2;
+  }
+  return res;
 }
 
-void set_hand(RotBmpPairContainer *pair, int ang)
+void rot_bitmap_set_src_ic(RotBitmapLayer *image, GPoint ic) {
+  image->src_ic = ic;
+
+  // adjust the frame so the whole image will still be visible
+  const int32_t horiz = MAX(ic.x, abs(image->bitmap->bounds.size.w - ic.x));
+  const int32_t vert = MAX(ic.y, abs(image->bitmap->bounds.size.h - ic.y));
+
+  GRect r = layer_get_frame(&image->layer);
+  //// const int32_t new_dist = integer_sqrt(horiz*horiz + vert*vert) * 2;
+  const int32_t new_dist = (integer_sqrt(horiz*horiz + vert*vert) * 2) + 1; //// Fudge to deal with non-even dimensions--to ensure right-most and bottom-most edges aren't cut off.
+
+  r.size.w = new_dist;
+  r.size.h = new_dist;
+  layer_set_frame(&image->layer, r);
+
+  r.origin = GPoint(0, 0);
+  ////layer_set_bounds(&image->layer, r);
+  image->layer.bounds = r;
+
+  image->dest_ic = GPoint(new_dist / 2, new_dist / 2);
+
+  layer_mark_dirty(&(image->layer));
+}
+
+////////////////////////////////////////////////////////////////////////////
+
+void set_hand(RotBmpContainer *container, int ang)
 {
-    pair->layer.white_layer.rotation = TRIG_MAX_ANGLE * ang / 360;
-    pair->layer.black_layer.rotation = TRIG_MAX_ANGLE * ang / 360;
-    layer_mark_dirty(&pair->layer.layer);
+    container->layer.rotation = TRIG_MAX_ANGLE * ang / 360;
+}
+
+void hmhands_update_proc(Layer *me, GContext *ctx)
+{
+    (void)me;
+    set_hand(&hourhand_container, (pebble_time.tm_hour % 12)*30 + pebble_time.tm_min/2);
+    set_hand(&minutehand_container, pebble_time.tm_min*6);
+}
+
+void sechand_update_proc(Layer *me, GContext *ctx)
+// The second-hand is drawn as a simple line, rather than using image
+// rotation.
+{
+    // The second-hand has a "counterbalance", so we actually start
+    // the other side of the center.
+    static GPoint endpoint1, endpoint2;
+
+    graphics_context_set_stroke_color(ctx, GColorWhite);
+
+    // We could probably precalc these calculations, but screw it.  The
+    // length of the second-hand is the same as the radius of the
+    // watchface, which is the same as watchface_center.x (as that's half
+    // the width a.k.a. diameter)
+    int32_t a = TRIG_MAX_ANGLE * pebble_time.tm_sec / 60;
+    int16_t dy = (int16_t)(-cos_lookup(a) * (int32_t)watchface_center.x / TRIG_MAX_RATIO);
+    int16_t dx = (int16_t)(sin_lookup(a) * (int32_t)watchface_center.x / TRIG_MAX_RATIO);
+
+    // Draw a line _across_ the center to the edge of the face.
+    endpoint1.x = watchface_center.x + dx;
+    endpoint1.y = watchface_center.y + dy;
+    endpoint2.x = watchface_center.x - dx/3;
+    endpoint2.y = watchface_center.y - dy/3;
+
+    graphics_draw_line(ctx, endpoint1, endpoint2);
 }
 
 void handle_tick(AppContextRef ctx, PebbleTickEvent *t)
 {
     (void)ctx;
 
+    // If we were passed an event, then we should already have the current
+    // time. If not, then we're probably being called from handle_init, so
+    // we need to get it.
     if(t)
         pebble_time = *t->tick_time;
     else
         get_time(&pebble_time);
 
+    // If digital readout is on, then print the time:
     if(digital_time) {
-        if (clock_is_24h_style()) {
-            if(seconds) {
-                time_format = "%R:%S";
-            }
-            else {
-                time_format = "%R";
-            }
-        } else {
-            if(seconds) {
-                time_format = "%I:%M:%S";
-            }
-            else {
-                time_format = "%I:%M";
-            }
-        }
 
+        // Format the time with the chosed time format
         string_format_time(time_text, sizeof(time_text), time_format, &pebble_time);
-        if ((!clock_is_24h_style()) && (time_text[0] == '0')) {
+
+        // Replace the leading zero with blank if we're in 12h mode.
+        if ((!is_24h) && (time_text[0] == '0')) {
             time_text[0] = ' ';
         }
 
+        // And set it for display. This should automatically mark the
+        // layer as dirty.
         text_layer_set_text(&time_layer, time_text);
     }
 
+    // If we're displaying the date (ie. !big), update the date string
+    // every hour, and also on initialisation.
+    if(!big) {
+        if(!t || (pebble_time.tm_sec == 0 && pebble_time.tm_min == 0)) {
+            string_format_time(date_text, sizeof(date_text), "%a %e %b", &pebble_time);
+            text_layer_set_text(&date_layer, date_text);
+        }
+    }
+
+    // If we're displaying a second-hand, then mark the second-hand layer
+    // as dirty for redrawing.
     if(seconds) {
         layer_mark_dirty(&sechand_layer);
     }
 
-    if (firstrun || !seconds || (pebble_time.tm_sec == 0)) {
-        set_hand(&hourhand_container, (pebble_time.tm_hour % 12)*30 + (pebble_time.tm_min/2));
-        set_hand(&minutehand_container, pebble_time.tm_min*6);
-
-        if(!big) {
-            if(firstrun || pebble_time.tm_min == 0) {
-                string_format_time(date_text, sizeof(date_text), "%a %e %b", &pebble_time);
-                text_layer_set_text(&date_layer, date_text);
-            }
-        }
-
-        if(firstrun)
-            firstrun = NO;
+    // Update the hour/minute hands, if:
+    //
+    //   a) !t, in which case, we're being called from handle_init, so
+    //      need to do the initial update;
+    //
+    //   b) Current seconds = 0 (ie. we're on the minute); or
+    //
+    //   c) Display of seconds is not enabled, which implies this event
+    //      handler is running every minute anyway.
+    if (!seconds || (pebble_time.tm_sec == 0)) {
+        layer_mark_dirty(&hmhands_layer);
     }
 }
 
@@ -157,15 +254,52 @@ void handle_init(AppContextRef ctx)
 
     resource_init_current_app(&APP_RESOURCES);
 
+    // Initialise 12/24h flag.  At time of writing, it's not possible to
+    // switch between 12/24h while the face is running, so it's okay to
+    // set this at initialisation. However, time_format depends on this.
+    is_24h = clock_is_24h_style();
+
+    // If there's a digital readout, then we initialise the string format
+    // here. As mentioned above, this might need to be moved into
+    // something in the main loop if it becomes possible to change format
+    // mid-run.
+    if (digital_time) {
+        if (is_24h) {
+            if (seconds) {
+                time_format = "%R:%S";
+            }
+            else {
+                time_format = "%R";
+            }
+        }
+        else {
+            if (seconds) {
+                time_format = "%I:%M:%S";
+            }
+            else {
+                time_format = "%I:%M";
+            }
+        }
+    }
+
+    // Load bitmap for watch face background
     bmp_init_container(RESOURCE_ID_IMAGE_WATCHFACE, &watchface_container);
 
+    // Not unexpectedly, most coordinates for the face, hands, etc. are
+    // relative to the watchface size and position.
     watchface_frame = layer_get_frame(&watchface_container.layer.layer);
 
     if(big) {
+        // BBCWatch, ie. just analogue: stretches the full width of the
+        // watch, and is vertically centered.
         watchface_frame.origin.x = 0;
         watchface_frame.origin.y = 12;
     }
     else {
+        // BeebWatch, ie. a mix of analogue and digital. The watch face is
+        // narrower, and so needs to be horizontally centered. Vertical
+        // positioning is determined by whether or not there's a digital
+        // readout of the time.
         watchface_frame.origin.x = 16;
         if(digital_time)
             watchface_frame.origin.y = 0;
@@ -173,76 +307,130 @@ void handle_init(AppContextRef ctx)
             watchface_frame.origin.y = 14;
     }
 
-    center = GPoint(watchface_frame.size.w/2, watchface_frame.size.h/2);
-    centerdot_rect = GRect(center.x - centerdot_radius, center.y - centerdot_radius, centerdot_radius*2, centerdot_radius*2);
-
     layer_set_frame(&watchface_container.layer.layer, watchface_frame);
+
+
+    // The center of the watchface (relative to the origin of the frame)
+    // is used in laying out the hands.
+    watchface_center = GPoint(watchface_frame.size.w/2, watchface_frame.size.h/2);
+
+    // Add the background layer to the window.
     layer_add_child(&window.layer, &watchface_container.layer.layer);
 
-    if(!big) {
-        small_font = fonts_load_custom_font(resource_get_handle(FONT_SMALL));
 
-        // Date
-        text_layer_init(&date_layer, window.layer.frame);
+    if(!big) {
+
+        // Date. This is intentionally formatted the same way Teletext
+        // formatted it: Day Date Mon, with Date padded with spaces.
+        text_layer_init(&date_layer, GRect(13, 146, 144-13, 20));
         text_layer_set_text_color(&date_layer, GColorWhite);
         text_layer_set_background_color(&date_layer, GColorClear);
-        layer_set_frame(&date_layer.layer, GRect(13, 146, 144-13, 20));
-        text_layer_set_font(&date_layer, small_font);
         text_layer_set_text_alignment(&date_layer, GTextAlignmentLeft);
+
+        small_font = fonts_load_custom_font(resource_get_handle(FONT_SMALL));
+        text_layer_set_font(&date_layer, small_font);
+
         layer_add_child(&window.layer, &date_layer.layer);
 
-        // Time
+        // If there's a digital time readout, then set up a layer to print
+        // the time:
         if(digital_time) {
-            large_font = fonts_load_custom_font(resource_get_handle(FONT_LARGE));
-            text_layer_init(&time_layer, window.layer.frame);
+            // If there's no seconds, then the bounding box is
+            // shifted. However, this does mess up the nice neat
+            // Teletext-style monospaced layout. Oh well.
+            if(seconds)
+                text_layer_init(&time_layer, GRect(25, 112, 144-25, 33));
+            else
+                text_layer_init(&time_layer, GRect(43, 112, 144-43, 33));
+
             text_layer_set_text_color(&time_layer, GColorWhite);
             text_layer_set_background_color(&time_layer, GColorClear);
-            if(seconds)
-                layer_set_frame(&time_layer.layer, GRect(25, 112, 144-25, 32));
-            else
-                layer_set_frame(&time_layer.layer, GRect(43, 112, 144-43, 32));
-            text_layer_set_font(&time_layer, large_font);
             text_layer_set_text_alignment(&time_layer, GTextAlignmentLeft);
+
+            large_font = fonts_load_custom_font(resource_get_handle(FONT_LARGE));
+            text_layer_set_font(&time_layer, large_font);
+
             layer_add_child(&window.layer, &time_layer.layer);
         }
     }
 
-    // Hands
-    rotbmp_pair_init_container(RESOURCE_ID_IMAGE_HOURHAND_WHITE, RESOURCE_ID_IMAGE_HOURHAND_BLACK, &hourhand_container);
+    // Hands: To make updates easier (as hours and minutes are always
+    // updated at the same time due to slew on the hour hand through the
+    // hour), the hour- and minute-hand are separate image sublayers of a
+    // generic layer for both hands. This means they share the same update
+    // routine.
+    layer_init(&hmhands_layer, watchface_frame);
+    hmhands_layer.update_proc = &hmhands_update_proc;
+
+    // It would be better to do both hour- and minute-hand with polygons,
+    // but polygon-drawing in PebbleOS 1.10 is broken: it can't do narrow
+    // polygons worth a damn. Contrary to initial assumptions, it's not
+    // down to rotation error. To test this, I generated all positions of
+    // the minute hand with known-good coordinates without resorting to
+    // Pebble trig or rotation, and it couldn't draw them well.
+    //
+    // So, instead, we use Pebble's crazy-ass rotbmp system instead.
+    rotbmp_init_container(RESOURCE_ID_IMAGE_HOURHAND, &hourhand_container);
+    layer_add_child(&hmhands_layer, &hourhand_container.layer.layer);
+
+    // The bounding boxes of RotBmpLayers are a mystery to me, so I'm just
+    // going to copy what everyone else seems to do:
     if(big)
-        rotbmp_pair_layer_set_src_ic(&hourhand_container.layer, GPoint(3, 49));
+        rot_bitmap_set_src_ic(&hourhand_container.layer, GPoint(3, 49));
     else
-        rotbmp_pair_layer_set_src_ic(&hourhand_container.layer, GPoint(2, 37));
+        rot_bitmap_set_src_ic(&hourhand_container.layer, GPoint(2, 37));
+    hourhand_container.layer.layer.frame.origin.x = watchface_center.x - hourhand_container.layer.layer.frame.size.w/2;
+    hourhand_container.layer.layer.frame.origin.y = watchface_center.y - hourhand_container.layer.layer.frame.size.h/2;
 
-    hourhand_container.layer.layer.frame.origin.x = watchface_frame.origin.x + center.x - hourhand_container.layer.layer.frame.size.w / 2;
-    hourhand_container.layer.layer.frame.origin.y = watchface_frame.origin.y + center.y - hourhand_container.layer.layer.frame.size.h / 2;
-    layer_add_child(&window.layer, &hourhand_container.layer.layer);
-
-    rotbmp_pair_init_container(RESOURCE_ID_IMAGE_MINUTEHAND_WHITE, RESOURCE_ID_IMAGE_MINUTEHAND_BLACK, &minutehand_container);
+    // Same as with minute hands...
+    rotbmp_init_container(RESOURCE_ID_IMAGE_MINUTEHAND, &minutehand_container);
+    layer_add_child(&hmhands_layer, &minutehand_container.layer.layer);
     if(big)
-        rotbmp_pair_layer_set_src_ic(&minutehand_container.layer, GPoint(2, 72));
+        rot_bitmap_set_src_ic(&minutehand_container.layer, GPoint(2, 72));
     else
-        rotbmp_pair_layer_set_src_ic(&minutehand_container.layer, GPoint(1, 56));
-    minutehand_container.layer.layer.frame.origin.x = watchface_frame.origin.x + center.x - minutehand_container.layer.layer.frame.size.w / 2;
-    minutehand_container.layer.layer.frame.origin.y = watchface_frame.origin.y + center.y - minutehand_container.layer.layer.frame.size.h / 2;
-    layer_add_child(&window.layer, &minutehand_container.layer.layer);
+        rot_bitmap_set_src_ic(&minutehand_container.layer, GPoint(1, 56));
+    minutehand_container.layer.layer.frame.origin.x = watchface_center.x - minutehand_container.layer.layer.frame.size.w/2;
+    minutehand_container.layer.layer.frame.origin.y = watchface_center.y - minutehand_container.layer.layer.frame.size.h/2;
 
-    // Seconds: used even if there's no second hand, as the center dot is
-    // on this layer.
-    layer_init(&sechand_layer, watchface_frame);
-    sechand_layer.update_proc = &sechand_update_proc;
-    layer_add_child(&window.layer, &sechand_layer);
+    // Add the combined hands layer to the window
+    layer_add_child(&window.layer, &hmhands_layer);
 
+    // Second-hand, if there is one:
+    if(seconds) {
+        layer_init(&sechand_layer, watchface_frame);
+        sechand_layer.update_proc = &sechand_update_proc;
+        layer_add_child(&window.layer, &sechand_layer);
+    }
+
+    // Load bitmap for center dot background
+    bmp_init_container(RESOURCE_ID_IMAGE_CENTERDOT, &centerdot_container);
+
+    // Center-align it on the watchface center
+    GRect centerdot_frame = layer_get_frame(&centerdot_container.layer.layer);
+    centerdot_frame.origin.x = watchface_frame.origin.x + watchface_center.x - centerdot_frame.size.w / 2;
+    centerdot_frame.origin.y = watchface_frame.origin.y + watchface_center.y - centerdot_frame.size.h / 2;
+    layer_set_frame(&centerdot_container.layer.layer, centerdot_frame);
+
+    // Add it to the window.
+    layer_add_child(&window.layer, &centerdot_container.layer.layer);
+
+
+    // Finally, do the rest of the initialisation by calling the tick
+    // event handler directly (for this first run):
     handle_tick(NULL, NULL);
 }
 
 void handle_deinit(AppContextRef ctx)
+// Pebble has little to no memory management, so we have to clear up. I'm
+// not convinced this is all of it, mind you. It'd be nice if we could
+// work out where all the leaks are somehow.
 {
     (void)ctx;
 
     bmp_deinit_container(&watchface_container);
-    rotbmp_pair_deinit_container(&hourhand_container);
-    rotbmp_pair_deinit_container(&minutehand_container);
+    rotbmp_deinit_container(&hourhand_container);
+    rotbmp_deinit_container(&minutehand_container);
+    bmp_deinit_container(&centerdot_container);
     if(!big) {
         if(digital_time)
             fonts_unload_custom_font(&large_font);
@@ -251,7 +439,8 @@ void handle_deinit(AppContextRef ctx)
     window_deinit(&window);
 }
 
-void pbl_main(void *params) {
+void pbl_main(void *params)
+{
     PebbleAppHandlers handlers = {
         .init_handler = &handle_init,
         .deinit_handler = &handle_deinit,
@@ -261,9 +450,9 @@ void pbl_main(void *params) {
         }
     };
 
-    if(seconds)
-        handlers.tick_info.tick_units = SECOND_UNIT;
-    else
+    // If there's no second-hand, we can update every minute instead and
+    // save some power.
+    if(!seconds)
         handlers.tick_info.tick_units = MINUTE_UNIT;
 
     app_event_loop(params, &handlers);

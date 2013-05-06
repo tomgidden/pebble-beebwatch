@@ -12,13 +12,18 @@
         },
         {
             "defName": "IMAGE_HOURHAND",
-            "type": "png-trans",
+            "type": "png",
             "file": "images/beebwatch_hour.png"
         },
         {
             "defName": "IMAGE_MINUTEHAND",
-            "type": "png-trans",
+            "type": "png",
             "file": "images/beebwatch_minute.png"
+        },
+        {
+            "defName": "IMAGE_CENTERDOT",
+            "type": "png",
+            "file": "images/beebwatch_centerdot.png"
         },
         {
             "characterRegex": "[A-Za-z0-9 ]",
@@ -28,7 +33,7 @@
         },
         {
             "characterRegex": "[0-9:\\. ]",
-            "defName": "FONT_MALLARD_CONDENSED_SUBSET_32",
+            "defName": "FONT_MALLARD_CONDENSED_32",
             "type": "font",
             "file": "fonts/MallardBlocky-Condensed.otf"
         }
