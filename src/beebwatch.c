@@ -26,7 +26,7 @@
 #define YES 1
 
 PBL_APP_INFO(MY_UUID, APP_NAME, "Tom Gidden",
-             1, 2, /* App version */
+             1, 5, /* App version */
              RESOURCE_ID_IMAGE_MENU_ICON, APP_INFO_WATCH_FACE);
 
 
@@ -150,7 +150,13 @@ void rot_bitmap_set_src_ic(RotBitmapLayer *image, GPoint ic) {
 
 void set_hand(RotBmpContainer *container, int ang)
 {
-    container->layer.rotation = TRIG_MAX_ANGLE * ang / 360;
+    if(ang == 0)
+        // As of Pebble OS 1.11, rotation=0 seems to disappear the image,
+        // but after checking, path drawing is still broken, so let's hack
+        // it.
+        container->layer.rotation = TRIG_MAX_ANGLE;
+    else
+        container->layer.rotation = TRIG_MAX_ANGLE * ang / 360;
 }
 
 void hmhands_update_proc(Layer *me, GContext *ctx)
