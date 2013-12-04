@@ -5,10 +5,10 @@ body {
   line-height:20px;
   -webkit-font-smoothing:none;
   min-height:100%;
-  margin:20px;
+  margin:0;
 }
 
-h1, h2 {
+h1, footer {
   text-align:center;
   margin:0;
   padding:0;
@@ -16,9 +16,12 @@ h1, h2 {
 
 footer {
   position:absolute;
-  bottom:20px;
-  left:20px;
-  right:20px;
+  bottom:0;
+  left:0;
+  right:0;
+}
+footer:before {
+  content:"v.2.0, by Tom Gidden";
 }
 
 h1 {
@@ -32,7 +35,7 @@ h1 span {
   color:white;
 }
 
-h2 {
+footer {
   background:blue;
   color:yellow;
   font:16px MallardBlocky;
@@ -54,12 +57,13 @@ label {
   display:block;
   text-align:left;
   width:100%;
+  padding:0 20px;
   margin:0;
 }
 
 p {
   padding:0;
-  margin:-30px 0 0 0;
+  margin:-30px 0 0 20px;
   color:cyan;
 }
 
