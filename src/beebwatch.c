@@ -485,7 +485,6 @@ static void tuple_changed_callback(const uint32_t key, const Tuple* tuple_new, c
 // Configuration data from PebbleJS has been received.
 {
     uint8_t value = tuple_new->value->uint8;
-    APP_LOG(APP_LOG_LEVEL_DEBUG, "getting %ld %d", key, value);
 
     switch (key) {
     case SETTING_SECHAND:

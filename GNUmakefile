@@ -1,10 +1,10 @@
 build: build/beebwatch-2.pbw
 
 run: build/beebwatch-2.pbw
-	pebble install --logs --phone 192.168.7.67
+	pebble install --logs
 
 install: build/beebwatch-2.pbw
-	pebble install --phone 192.168.7.67
+	pebble install
 
 clean:
 	pebble clean
@@ -14,8 +14,5 @@ build/beebwatch-2.pbw: src/js/pebble-js-app.js src/beebwatch.c appinfo.json
 	pebble build
 
 src/js/pebble-js-app.js: src/js/pebble-js-app.src.js src/js/configuration.html
-#	sed -e 's/URLENCODEMARKER/'`perl -pe's/([^-_.~A-Za-z0-9])/sprintf("%%%02X",ord($$1))/seg;' src/js/configuration.html`'/' $< > $@
-	sed -e 's/URLENCODEMARKER/'`perl -pe's/([^-_.~A-Za-z0-9])/sprintf("%%%02X",ord($$1))/seg;' src/js/configuration.html`'/' $< | /usr/local/share/npm/bin/uglifyjs -c -m > $@
-#	sed -e 's/BASE64MARKER/'`base64 < src/js/configuration.html`'/' $< | /usr/local/share/npm/bin/uglifyjs -c -m > $@
-#	sed -e 's/BASE64MARKER/'`base64 < src/js/configuration.html`'/' $< > $@
+	perl -pe 'BEGIN { local $$/; open $$fh,pop @ARGV or die $$!; $$f = <$$fh>; $$f =~ s/\047/\\\047/g; } s/_HTMLMARKER_/$$f/g;' $^ | /usr/local/share/npm/bin/uglifyjs -c -m > $@
 
