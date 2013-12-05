@@ -9,7 +9,12 @@
         "watchface": true
     },
     "capabilities": [ "configurable" ],
-    "appKeys": {},
+    "appKeys": {
+        "sechand":1,
+        "showtime":2,
+        "showdate":3,
+        "is24h":4
+    },
     "resources": {
         "media": [
             {
