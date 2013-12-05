@@ -6,11 +6,11 @@ install: build/beebwatch-2.pbw
 
 clean:
 	pebble clean
-	rm src/js/pebble-js-app.js
+	rm src/js/pebble-js-app.min.js
 
-build/beebwatch-2.pbw: src/js/pebble-js-app.js src/beebwatch.c
+build/beebwatch-2.pbw: src/js/pebble-js-app.min.js src/beebwatch.c
 	pebble build
 
-src/js/pebble-js-app.js: src/javascript/pebble-js-app.src.js src/javascript/configuration.html
-	sed -e 's/BASE64MARKER/'`base64 < src/javascript/configuration.html`'/' $< | /usr/local/share/npm/bin/uglifyjs -c -m > $@
+src/js/pebble-js-app.min.js: src/js/pebble-js-app.src.js src/js/configuration.html
+	sed -e 's/BASE64MARKER/'`base64 < src/js/configuration.html`'/' $< | /usr/local/share/npm/bin/uglifyjs -c -m > $@
 
