@@ -1,0 +1,55 @@
+{
+    "uuid": "9A8C2123-7D20-4324-A185-45692A580ECE",
+    "shortName": "Beebwatch",
+    "longName": "Beebwatch",
+    "companyName": "Tom Gidden",
+    "versionCode": 2,
+    "versionLabel": "2.0.0",
+    "watchapp": {
+        "watchface": true
+    },
+    "capabilities": [ "configurable" ],
+    "appKeys": {},
+    "resources": {
+        "media": [
+            {
+                "name": "IMAGE_MENU_ICON",
+                "type": "png",
+                "file": "images/beebwatch_menuicon.png",
+                "menu_icon": true
+            },
+            {
+                "name": "IMAGE_BIG_WATCHFACE",
+                "type": "png",
+                "file": "images/bbcwatch_watchface.png"
+            },
+            {
+                "name": "IMAGE_SMALL_WATCHFACE",
+                "type": "png",
+                "file": "images/beebwatch_watchface.png"
+            },
+            {
+                "name": "IMAGE_BIG_CENTERDOT",
+                "type": "png",
+                "file": "images/bbcwatch_centerdot.png"
+            },
+            {
+                "name": "IMAGE_SMALL_CENTERDOT",
+                "type": "png",
+                "file": "images/beebwatch_centerdot.png"
+            },
+            {
+                "characterRegex": "[A-Za-z0-9 ]",
+                "name": "FONT_MALLARD_16",
+                "type": "font",
+                "file": "fonts/MallardBlocky-Regular.otf"
+            },
+            {
+                "characterRegex": "[0-9:\\. ]",
+                "name": "FONT_MALLARD_CONDENSED_32",
+                "type": "font",
+                "file": "fonts/MallardBlocky-Condensed.otf"
+            }
+        ]
+    }
+}

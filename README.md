@@ -4,8 +4,7 @@ pebble-beebwatch
 Beebwatch face for Pebble smartwatch
 
 This code is hacked together from a number of sources, most notably the
-Pebble SDK examples; and https://github.com/dansl/pebble-silly-walk
-(for examples of image rotation)
+Pebble SDK examples.
 
 The code's a bit of a mess, but once the SDK settles down and is a bit
 better documented, I'll probably rework this code to match. Until then,
