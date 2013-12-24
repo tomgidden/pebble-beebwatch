@@ -20,8 +20,9 @@ footer {
   left:0;
   right:0;
 }
+
 footer:before {
-  content:"v.2.0, by Tom Gidden";
+  content:"v.2.0.2, by Tom Gidden";
 }
 
 h1 {
