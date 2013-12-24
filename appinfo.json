@@ -3,8 +3,8 @@
     "shortName": "Beebwatch",
     "longName": "Beebwatch",
     "companyName": "Tom Gidden",
-    "versionCode": 2.01,
-    "versionLabel": "2.0.1",
+    "versionCode": 202,
+    "versionLabel": "2.0.2",
     "watchapp": {
         "watchface": true
     },

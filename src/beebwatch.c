@@ -561,6 +561,8 @@ static void send_cfg_to_js(void)
 
   if (iter == NULL) return;
 
+    APP_LOG(APP_LOG_LEVEL_DEBUG, "doing send cfg");
+
   dict_write_uint8(iter, SETTING_SECHAND, sechand);
   dict_write_uint8(iter, SETTING_SHOWTIME, showtime);
   dict_write_uint8(iter, SETTING_SHOWDATE, showdate);

@@ -12,6 +12,10 @@ Pebble.addEventListener('ready', function () {
 });
 
 Pebble.addEventListener('showConfiguration', function () {
+    // window.navigator.userAgent = Mozilla/5.0 (Linux; Android 4.4.2; Nexus 7 Build/KOT49H) AppleWebKit/537.36 (KHTML, like Gecko) Version/4.0 Chrome/30.0.0.0 Safari/537.36
+    // window.navigator.userAgent = Ejecta/1.4 (iPhone6,2; OS 7.0.4)
+    // window.navigator.onLine
+
     // Load the configuration HTML.  This is drawn from the
     // configuration.html file. The GNUmakefile will use Perl to backslash
     // any single quotes (but NOT other escape characters!!!) and insert
@@ -19,12 +23,11 @@ Pebble.addEventListener('showConfiguration', function () {
     // HTML file with the JSON for the current config data, and then
     // encode the entire HTML with URL encoding, and open it as a URL.
     // This way, the HTML can be bundled with the app.
-    Pebble.openURL('data:text/html,'+encodeURI('_HTMLMARKER_'.replace('_CONFDATA_', JSON.stringify(config), 'g')));
+    Pebble.openURL('data:text/html,'+encodeURI('_HTMLMARKER_<!--.html'.replace('"_CONFDATA_"', JSON.stringify(config), 'g')));
 });
 
 Pebble.addEventListener('webviewclosed', function (e) {
     // The web view has closed (probably SAVE)
-
     if ((typeof e.response === 'string') && (e.response.length > 0)) {
         // There's a response: assume it's the correct settings from the
         // HTML form, store it in localStorage (necessary?) and push to
