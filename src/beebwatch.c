@@ -26,19 +26,49 @@ enum Settings {
     SETTING_SECHAND = 1,
     SETTING_SHOWTIME = 2,
     SETTING_SHOWDATE = 3,
-    SETTING_IS24H = 4
+    SETTING_IS_24H = 4,
+    SETTING_INVERT = 5,
+    SETTING_LEDS = 6
 };
 
-uint8_t sechand = NO;
-uint8_t showtime = YES;
-uint8_t showdate = YES;
-uint8_t is_24h = YES;
+#define SETTING_STRUCT_KEY 235
 
-uint8_t update_on_next_tick = YES;
+typedef struct {
+    bool sechand;
+    bool showtime;
+    bool showdate;
+    bool is_24h;
+    bool invert;
+    bool leds;
+} __attribute__((__packed__)) Settings;
+
+// The actual global settings structure
+Settings settings = {
+    .sechand = NO,
+    .showtime = YES,
+    .showdate = YES,
+    .is_24h = YES,
+    .invert = NO,
+    .leds = YES
+};
+
+bool update_on_next_tick = YES;
+bool update_leds_on_next_tick = YES;
+
+#define BLUETOOTH_CONNECTED 1
+#define BLUETOOTH_DISCONNECTED 0
+#define BLUETOOTH_UNKNOWN 255
+
+#define BATTERY_CHARGING 253
+#define BATTERY_CHARGED 254
+#define BATTERY_UNKNOWN 255
+
+uint8_t bluetooth_state = BLUETOOTH_UNKNOWN;
+uint8_t battery_state = BATTERY_UNKNOWN;
 
 // Syncing of configuration settings with PebbleJS
-static AppSync app;
-static uint8_t buffer[256];
+static AppSync sync;
+static uint8_t sync_buffer[255];
 
 // The main window itself
 static Window *window;
@@ -127,9 +157,58 @@ static const GPathInfo SMALL_MINUTE_HAND = {
   }
 };
 
+// LEDs (indicators)
+#define LEDS_PAD_X 2
+#define LEDS_PAD_Y 2
+#define LEDS_BATTERY_LENGTH 15
+#define LEDS_BATTERY_HEIGHT 8
+#define LEDS_WIDTH 144-LEDS_PAD_X*2
+#define LEDS_HEIGHT 13
+static Layer *leds_layer;
+static GRect leds_frame = {.origin={.x=LEDS_PAD_X,.y=LEDS_PAD_Y},
+                             .size={.w=LEDS_WIDTH,.h=LEDS_HEIGHT}};
+
+static GPath *bluetooth_path;
+
+
+static const GPathInfo BLUETOOTH_ICON = {
+    6, (GPoint []){
+        {-1, 3-1},
+        {6, 9},
+        {3, 12},
+        {3, 0},
+        {6, 3},
+        {-1, 9+1}
+    }
+};
+
+static GPath *charge_path;
+static GPoint charge_origin = {.x=LEDS_WIDTH-LEDS_BATTERY_LENGTH+1, .y=0};
+
+static GRect battery_rect = {.origin={.x=LEDS_WIDTH-LEDS_BATTERY_LENGTH-2,.y=2},
+                             .size={.w=LEDS_BATTERY_LENGTH,.h=LEDS_BATTERY_HEIGHT}};
+
+static const GPathInfo CHARGE_ICON = {
+    9, (GPoint []){
+        {7, 0},
+        {6, 5},
+        {8, 6},
+        {2, 12},
+        {2, 11},
+        {3, 6},
+        {1, 6},
+        {1, 5},
+        {6, 0}
+    }
+};
+
+// Inverter layer, if black-on-white has been requested
+InverterLayer *invert_layer;
+
+
 static inline int big()
 {
-    return !(showtime || showdate);
+    return !(settings.showtime || settings.showdate);
 }
 
 static void load_image_to_bitmap_layer(GBitmap **image, BitmapLayer **layer, GRect *frame, const int resource_id)
@@ -205,6 +284,82 @@ static void sechand_update_proc(Layer *layer, GContext *ctx)
     graphics_draw_line(ctx, endpoint1, endpoint2);
 }
 
+
+static inline void battery_changed_translate(BatteryChargeState charge_state)
+{
+    if(charge_state.is_charging)
+        battery_state = BATTERY_CHARGING;
+    else if(charge_state.is_plugged)
+        battery_state = BATTERY_CHARGED;
+    else if(charge_state.charge_percent == 90)
+        battery_state = 100;
+    else
+        battery_state = charge_state.charge_percent;
+}
+
+static void leds_update_proc(Layer *layer, GContext *ctx)
+// LEDS for Bluetooth and Battery
+{
+    update_leds_on_next_tick = NO;
+
+    if(!settings.leds) return;
+
+    graphics_context_set_stroke_color(ctx, GColorWhite);
+
+    if(bluetooth_state == BLUETOOTH_UNKNOWN)
+        bluetooth_state = bluetooth_connection_service_peek();
+
+    if(battery_state == BATTERY_UNKNOWN)
+        battery_changed_translate(battery_state_service_peek());
+
+    if(bluetooth_state == BLUETOOTH_CONNECTED)
+        graphics_context_set_stroke_color(ctx, GColorWhite);
+    else
+        graphics_context_set_stroke_color(ctx, GColorBlack);
+    gpath_draw_outline(ctx, bluetooth_path);
+
+
+    graphics_context_set_stroke_color(ctx, GColorWhite);
+    graphics_draw_rect(ctx, battery_rect);
+
+    GRect fill_rect = battery_rect;
+    fill_rect.origin.x+=2;
+    fill_rect.origin.y+=2;
+    fill_rect.size.h -= 4;
+    fill_rect.size.w -= 4;
+
+    switch (battery_state) {
+    case BATTERY_CHARGED:
+    case BATTERY_CHARGING:
+        graphics_context_set_fill_color(ctx, GColorWhite);
+        break;
+
+    case BATTERY_UNKNOWN:
+        graphics_context_set_fill_color(ctx, GColorBlack);
+        break;
+
+    default:
+        graphics_context_set_fill_color(ctx, GColorWhite);
+        fill_rect.size.w = ((int)(fill_rect.size.w) * (int)battery_state)/100;
+    }
+
+    graphics_fill_rect(ctx, fill_rect, 0, 0);
+
+    graphics_draw_line(ctx,
+                       GPoint(battery_rect.origin.x+battery_rect.size.w,
+                              battery_rect.origin.y+2),
+                       GPoint(battery_rect.origin.x+battery_rect.size.w,
+                              battery_rect.origin.y+battery_rect.size.h-3));
+
+    if(battery_state == BATTERY_CHARGING ||
+       battery_state == BATTERY_CHARGED) {
+        graphics_context_set_stroke_color(ctx, GColorBlack);
+        graphics_context_set_fill_color(ctx, GColorWhite);
+        gpath_draw_filled(ctx, charge_path);
+        gpath_draw_outline(ctx, charge_path);
+    }
+}
+
 static void clear_ui()
 // Pebble has little to no memory management, so we have to clear up. This might
 // be a bit excessive... in particular, is it necessary to remove a layer before
@@ -234,6 +389,22 @@ static void clear_ui()
         minute_path = NULL;
     }
 
+    if(leds_layer) {
+        layer_remove_from_parent(leds_layer);
+        layer_destroy(leds_layer);
+        leds_layer = NULL;
+    }
+
+    if(bluetooth_path) {
+        gpath_destroy(bluetooth_path);
+        bluetooth_path = NULL;
+    }
+
+    if(charge_path) {
+        gpath_destroy(charge_path);
+        charge_path = NULL;
+    }
+
     if(centerdot_layer) {
         layer_remove_from_parent(bitmap_layer_get_layer(centerdot_layer));
         bitmap_layer_destroy(centerdot_layer);
@@ -254,6 +425,12 @@ static void clear_ui()
     if(watchface_image) {
         gbitmap_destroy(watchface_image);
         watchface_image = NULL;
+    }
+
+    if(invert_layer) {
+        layer_remove_from_parent(inverter_layer_get_layer(invert_layer));
+        inverter_layer_destroy(invert_layer);
+        invert_layer = NULL;
     }
 
     if(date_layer) {
@@ -291,15 +468,15 @@ static void setup_ui()
     // here. As mentioned above, this might need to be moved into
     // something in the main loop if it becomes possible to change format
     // mid-run.
-    if (showtime) {
-        if (is_24h) {
-            if (sechand)
+    if (settings.showtime) {
+        if (settings.is_24h) {
+            if (settings.sechand)
                 time_format = "%R:%S";
             else
                 time_format = "%R";
         }
         else {
-            if (sechand)
+            if (settings.sechand)
                 time_format = "%I:%M:%S";
             else
                 time_format = "%I:%M";
@@ -324,7 +501,7 @@ static void setup_ui()
         // determined by whether or not there's a digital readout of the
         // time.
         watchface_frame.origin.x = 16;
-        if(showtime)
+        if(settings.showtime)
             watchface_frame.origin.y = 0;
         else
             watchface_frame.origin.y = 14;
@@ -351,6 +528,18 @@ static void setup_ui()
     // Add the background layer to the window.
     layer_add_child(window_layer, bitmap_layer_get_layer(watchface_layer));
 
+    // Add the LEDs layer
+    if(settings.leds) {
+        bluetooth_path = gpath_create(&BLUETOOTH_ICON);
+        charge_path = gpath_create(&CHARGE_ICON);
+        gpath_move_to(charge_path, charge_origin);
+
+        leds_layer = layer_create(leds_frame);
+
+        layer_set_update_proc(leds_layer, leds_update_proc);
+        layer_add_child(window_layer, leds_layer);
+    }
+
     // Hands: To make updates easier (as hours and minutes are always
     // updated at the same time due to slew on the hour hand through the
     // hour), the hour- and minute-hand are separate image sublayers of a
@@ -363,7 +552,7 @@ static void setup_ui()
     layer_add_child(window_layer, hmhands_layer);
 
     // Second-hand, if there is one:
-    if(sechand) {
+    if(settings.sechand) {
         sechand_layer = layer_create(watchface_frame);
         layer_set_update_proc(sechand_layer, sechand_update_proc);
         layer_add_child(window_layer, sechand_layer);
@@ -378,7 +567,7 @@ static void setup_ui()
     // Add it to the window.
     layer_add_child(window_layer, bitmap_layer_get_layer(centerdot_layer));
 
-    if(showdate) {
+    if(settings.showdate) {
         // Date. This is intentionally formatted the same way Teletext
         // formatted it: Day Date Mon, with Date padded with spaces.
         date_layer = text_layer_create(GRect(13, 146, 144-13, 20));
@@ -396,11 +585,11 @@ static void setup_ui()
 
     // If there's a digital time readout, then set up a layer to print
     // the time:
-    if(showtime) {
+    if(settings.showtime) {
         // If there's no seconds, then the bounding box is
         // shifted. However, this does mess up the nice neat
         // Teletext-style monospaced layout. Oh well.
-        if(sechand)
+        if(settings.sechand)
             time_layer = text_layer_create(GRect(25, 112, 144-25, 33));
         else
             time_layer = text_layer_create(GRect(43, 112, 144-43, 33));
@@ -415,6 +604,12 @@ static void setup_ui()
         text_layer_set_font(time_layer, large_font);
 
         layer_add_child(window_layer, text_layer_get_layer(time_layer));
+    }
+
+    // Add an inverter if black-on-white is desired (WHY?!)
+    if(settings.invert) {
+        invert_layer = inverter_layer_create(layer_get_frame(window_layer));
+        layer_add_child(window_layer, inverter_layer_get_layer(invert_layer));
     }
 }
 
@@ -435,16 +630,15 @@ static void tick(struct tm *t, TimeUnits units_changed)
     // place.
     if(update_on_next_tick) {
         setup_ui();
-        update_on_next_tick = NO;
     }
 
     // If digital readout is on, then print the time:
-    if(showtime) {
+    if(settings.showtime) {
         // Format the time with the chosen time format
         strftime(time_text, sizeof(time_text), time_format, pebble_time);
 
         // Replace the leading zero with blank if we're in 12h mode.
-        if ((!is_24h) && (time_text[0] == '0')) {
+        if ((!settings.is_24h) && (time_text[0] == '0')) {
             time_text[0] = ' ';
         }
 
@@ -455,7 +649,7 @@ static void tick(struct tm *t, TimeUnits units_changed)
 
     // If we're displaying the date, update the date string
     // every hour, and also on initialisation.
-    if(showdate) {
+    if(settings.showdate) {
         if(date_text[0]=='X' || (pebble_time->tm_sec == 0 && pebble_time->tm_min == 0)) {
             strftime(date_text, sizeof(date_text), "%a %e %b", pebble_time);
             text_layer_set_text(date_layer, date_text);
@@ -464,7 +658,7 @@ static void tick(struct tm *t, TimeUnits units_changed)
 
     // If we're displaying a second-hand, then mark the second-hand layer
     // as dirty for redrawing.
-    if(sechand)
+    if(settings.sechand)
         layer_mark_dirty(sechand_layer);
 
     // Update the hour/minute hands, if:
@@ -476,57 +670,120 @@ static void tick(struct tm *t, TimeUnits units_changed)
     //
     //   c) Display of seconds is not enabled, which implies this event
     //      handler is running every minute anyway.
-    if (!sechand || (pebble_time->tm_sec == 0)) {
+    if (!settings.sechand || (pebble_time->tm_sec == 0)) {
         layer_mark_dirty(hmhands_layer);
     }
+
+    // Unless we get an update...
+    update_on_next_tick = NO;
 }
 
-static void tuple_changed_callback(const uint32_t key, const Tuple* tuple_new, const Tuple* tuple_old, void* context)
-// Configuration data from PebbleJS has been received.
+
+static void battery_changed_callback(BatteryChargeState charge_state)
+{
+    battery_changed_translate(charge_state);
+
+    APP_LOG(APP_LOG_LEVEL_DEBUG, "battery_changed_callback: %d", battery_state);
+
+    if(!settings.leds) return;
+
+    update_leds_on_next_tick = YES;
+    tick(NULL, settings.sechand ? SECOND_UNIT : MINUTE_UNIT);
+}
+
+static void bluetooth_changed_callback(bool connected)
+{
+    bluetooth_state = connected ? BLUETOOTH_CONNECTED : BLUETOOTH_DISCONNECTED;
+
+    APP_LOG(APP_LOG_LEVEL_DEBUG, "bluetooth_changed_callback: %d", bluetooth_state);
+
+    if(!settings.leds) return;
+
+    update_leds_on_next_tick = YES;
+    tick(NULL, settings.sechand ? SECOND_UNIT : MINUTE_UNIT);
+}
+
+
+static void sync_tuple_changed_callback(const uint32_t key, const Tuple* tuple_new, const Tuple* tuple_old, void* context)
+// Configuration data from PebbleJS (or from the init routine?) has been received.
 {
     uint8_t value = tuple_new->value->uint8;
+    uint8_t _value; // Key-specific transformed version of value
+    bool _update = NO; // Temp value for update_on_next_tick
 
     switch (key) {
     case SETTING_SECHAND:
-        sechand = value ? YES : NO;
-        update_on_next_tick = YES;
+        _value = value ? YES : NO;
+        if(_value != settings.sechand) {
+            _update = YES;
+            settings.sechand = _value;
+        }
         break;
 
     case SETTING_SHOWTIME:
-        showtime = value ? YES : NO;
-        update_on_next_tick = YES;
+        _value = value ? YES : NO;
+        if(_value != settings.showtime) {
+            _update = YES;
+            settings.showtime = _value;
+        }
         break;
 
     case SETTING_SHOWDATE:
-        showdate = value ? YES : NO;
-        if(showdate) date_text[0] = 'X'; // Dirty the date so it gets refreshed on next tick
-        update_on_next_tick = YES;
+        // 2 indicates to dirty the date so it gets refreshed on next tick
+        _value = value ? YES : NO;
+        if(!!_value != !!settings.showdate) {
+            _update = YES;
+            settings.showdate = _value ? 2 : NO;
+        }
+        if(settings.showdate) date_text[0] = 'X'; // Dirty the date so it gets refreshed on next tick
         break;
 
-    case SETTING_IS24H:
-        is_24h = value ? YES : NO;
-        update_on_next_tick = YES;
+    case SETTING_IS_24H:
+        _value = value ? YES : NO;
+        if(_value != settings.is_24h) {
+            _update = YES;
+            settings.is_24h = _value;
+        }
+        break;
+
+    case SETTING_INVERT:
+        _value = value ? YES : NO;
+        if(_value != settings.invert) {
+            _update = YES;
+            settings.invert = _value;
+        }
+        break;
+
+    case SETTING_LEDS:
+        _value = value ? YES : NO;
+        if(_value != settings.leds) {
+            _update = YES;
+            update_leds_on_next_tick = YES;
+            settings.leds = _value;
+            battery_state = BATTERY_UNKNOWN;
+            bluetooth_state = BLUETOOTH_UNKNOWN;
+        }
         break;
     }
+
+    APP_LOG(APP_LOG_LEVEL_DEBUG, "tuple_changed_callback: %ld %d %d", key, value, _update);
 
     // If the settings were updated, then we need to schedule the next
     // tick.  Since it might change from every-minute to every-second (or
     // vice versa), we need to do a full resubscribe.
-    if(update_on_next_tick) {
-
-        // Write the value to persistent storage
-        persist_write_int(key, value);
+    if(_update && !update_on_next_tick) {
+        update_on_next_tick = _update;
 
         // (Re-)schedule the timer
         tick_timer_service_unsubscribe();
-        tick_timer_service_subscribe(sechand ? SECOND_UNIT : MINUTE_UNIT, tick);
+        tick_timer_service_subscribe(settings.sechand ? SECOND_UNIT : MINUTE_UNIT, tick);
     }
 }
 
-static void app_error_callback(DictionaryResult dict_error, AppMessageResult app_message_error, void* context)
+static void sync_error_callback(DictionaryResult dict_error, AppMessageResult app_message_error, void* context)
 // Error from... um... the thing.
 {
-    APP_LOG(APP_LOG_LEVEL_DEBUG, "app error %d", app_message_error);
+    APP_LOG(APP_LOG_LEVEL_DEBUG, "dict error %d, app error %d", dict_error, app_message_error);
 }
 
 static void window_load(Window *_window)
@@ -536,11 +793,19 @@ static void window_load(Window *_window)
     window = _window;
     window_layer = window_get_root_layer(window);
 
+    // Monitor bluetooth and battery status, even if we're not displaying.
+    // (Otherwise it gets tricky)
+    bluetooth_connection_service_subscribe(&bluetooth_changed_callback);
+    battery_state_service_subscribe(&battery_changed_callback);
+
     // And schedule a reinitialise on the next tick
     update_on_next_tick = YES;
 
+    // Schedule the timer
+    tick_timer_service_subscribe(settings.sechand ? SECOND_UNIT : MINUTE_UNIT, tick);
+
     // Call the tick handler once to initialise the face
-    tick(NULL, sechand ? SECOND_UNIT : MINUTE_UNIT);
+    tick(NULL, settings.sechand ? SECOND_UNIT : MINUTE_UNIT);
 }
 
 static void window_unload(Window *window)
@@ -549,48 +814,38 @@ static void window_unload(Window *window)
     // Stop the tick handler
     tick_timer_service_unsubscribe();
 
+    // Quit monitoring battery and bluetooth status.
+    bluetooth_connection_service_unsubscribe();
+    battery_state_service_unsubscribe();
+
     // And deallocate everything
     clear_ui();
 }
 
-static void send_cfg_to_js(void)
-// Send settings to PebbleJS so it can store them
+static void load_cfg()
+// Load configuration from on-watch persistent storage
 {
-  DictionaryIterator *iter;
-  app_message_outbox_begin(&iter);
+    if(persist_exists(SETTING_STRUCT_KEY)) {
+        // There's local persistent storage data, so use it.
+        persist_read_data(SETTING_STRUCT_KEY, &settings, sizeof(settings));
+    }
+    else {
+        // Configuration doesn't exist in persistent storage, so should
+        // really get it from the PebbleJS localStorage. However, AppSync
+        // should do that for us anyway.
+        settings.is_24h = clock_is_24h_style();
+    }
+}
 
-  if (iter == NULL) return;
-
-    APP_LOG(APP_LOG_LEVEL_DEBUG, "doing send cfg");
-
-  dict_write_uint8(iter, SETTING_SECHAND, sechand);
-  dict_write_uint8(iter, SETTING_SHOWTIME, showtime);
-  dict_write_uint8(iter, SETTING_SHOWDATE, showdate);
-  dict_write_uint8(iter, SETTING_IS24H, is_24h);
-
-  dict_write_end(iter);
-
-  app_message_outbox_send();
+static void save_cfg()
+// Save configuration to on-watch persistent storage
+{
+    persist_write_data(SETTING_STRUCT_KEY, &settings, sizeof(settings));
 }
 
 static void init(void)
 // Initialise the app
 {
-    // Initialise settings from persistent storage
-    if(persist_exists(SETTING_SECHAND))
-        sechand = persist_read_int(SETTING_SECHAND);
-
-    if(persist_exists(SETTING_SHOWTIME))
-        showtime = persist_read_int(SETTING_SHOWTIME);
-
-    if(persist_exists(SETTING_SHOWDATE))
-        showdate = persist_read_int(SETTING_SHOWDATE);
-
-    if(persist_exists(SETTING_IS24H))
-        is_24h = persist_read_int(SETTING_IS24H);
-    else
-        is_24h = clock_is_24h_style();
-
     // Create and initialise the main window
     window = window_create();
     window_set_background_color(window, GColorBlack);
@@ -604,24 +859,28 @@ static void init(void)
         return;
     }
 
-    app_message_open(160, 160);
 
-    Tuplet tuples[] = {
-        TupletInteger(SETTING_SECHAND, sechand),
-        TupletInteger(SETTING_SHOWTIME, showtime),
-        TupletInteger(SETTING_SHOWDATE, showdate),
-        TupletInteger(SETTING_IS24H, is_24h)
+    // This whole AppSync thing confuses me.
+    app_message_open(app_message_inbox_size_maximum(), app_message_outbox_size_maximum());
+
+    // Load configuration from on-watch persistent storage
+    load_cfg();
+
+    Tuplet initial_values[] = {
+        TupletInteger(SETTING_SECHAND, settings.sechand),
+        TupletInteger(SETTING_SHOWTIME, settings.showtime),
+        TupletInteger(SETTING_SHOWDATE, settings.showdate),
+        TupletInteger(SETTING_IS_24H, settings.is_24h),
+        TupletInteger(SETTING_INVERT, settings.invert),
+        TupletInteger(SETTING_LEDS, settings.leds)
     };
 
-    app_sync_init(&app,
-                  buffer, sizeof(buffer),
-                  tuples, ARRAY_LENGTH(tuples),
-                  tuple_changed_callback,
-                  app_error_callback,
+    app_sync_init(&sync,
+                  sync_buffer, sizeof(sync_buffer),
+                  initial_values, ARRAY_LENGTH(initial_values),
+                  sync_tuple_changed_callback,
+                  sync_error_callback,
                   NULL);
-
-    // And send the persistent config to PebbleJS
-    send_cfg_to_js();
 
     // Load the window onto the UI stack
     window_stack_push(window, true);
@@ -629,8 +888,22 @@ static void init(void)
 
 static void deinit()
 {
+    // Save config to on-watch persistent storage, just in case
+    save_cfg();
+
+    // Update the sync'ed settings.  Is this what's meant to be done?
+    Tuplet new_values[] = {
+        TupletInteger(SETTING_SECHAND, settings.sechand),
+        TupletInteger(SETTING_SHOWTIME, settings.showtime),
+        TupletInteger(SETTING_SHOWDATE, settings.showdate),
+        TupletInteger(SETTING_IS_24H, settings.is_24h),
+        TupletInteger(SETTING_INVERT, settings.invert),
+        TupletInteger(SETTING_LEDS, settings.leds)
+    };
+    app_sync_set(&sync, new_values, ARRAY_LENGTH(new_values));
+
     // Shut down PebbleJS
-    app_sync_deinit(&app);
+    app_sync_deinit(&sync);
 
     // And close the main window
     window_destroy(window);

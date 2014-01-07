@@ -1,0 +1,46 @@
+label,input{display:block}label{clear:both;height:32px}input{float:right}
+
+body {
+  font-family:"Helvetica Neue", Helvetica, sans-serif;
+}
+
+label {
+  clear:none;
+  padding-top:0.5em;
+}
+
+
+h1, footer {
+  text-align:center;
+  margin:0;
+  padding:0;
+}
+
+footer {
+  position:absolute;
+  bottom:0;
+  left:0;
+  right:0;
+  font-size:16px;
+  line-height:20px;
+  border-top:1px solid lightgray;
+}
+
+h1 {
+  font-size:24px;
+  padding:0;
+  line-height:2em;
+}
+
+input, select {
+  font-size:18px;
+  min-width:28px;
+  height:28px;
+}
+
+p {
+  padding:0;
+  margin:-1.2em 48px 0 1.5em;
+  font-size:small;
+}
+

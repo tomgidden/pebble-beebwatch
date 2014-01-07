@@ -3,8 +3,8 @@
     "shortName": "Beebwatch",
     "longName": "Beebwatch",
     "companyName": "Tom Gidden",
-    "versionCode": 202,
-    "versionLabel": "2.0.2",
+    "versionCode": 205,
+    "versionLabel": "2.0.5",
     "watchapp": {
         "watchface": true
     },
@@ -13,7 +13,9 @@
         "sechand":1,
         "showtime":2,
         "showdate":3,
-        "is24h":4
+        "is24h":4,
+        "invert":5,
+        "leds":6
     },
     "resources": {
         "media": [
@@ -21,7 +23,8 @@
                 "name": "IMAGE_MENU_ICON",
                 "type": "png",
                 "file": "images/beebwatch_menuicon.png",
-                "menu_icon": true
+                "menu_icon": true,
+                "menuIcon": true
             },
             {
                 "name": "IMAGE_BIG_WATCHFACE",
