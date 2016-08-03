@@ -1,6 +1,8 @@
 pebble-beebwatch
 ================
 
+**THIS PROJECT IS NO LONGER SUPPORTED OR WORKING: I no longer use my Pebble watch, so my watchface repos are unmaintained and certainly fail on newer Pebble releases. You are welcome to fork this code and get it working again. Sorry!**
+
 Beebwatch face for Pebble smartwatch
 
 This code is hacked together from a number of sources, most notably the
